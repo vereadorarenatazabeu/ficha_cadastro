@@ -72,7 +72,7 @@
       }
     }
 
-    function buscarCep(){
+    async function buscarCep(){
       const cepInput = document.getElementById('cep');
       const enderecoInput = document.getElementById('endereco');
       const bairroInput = document.getElementById('bairro');
@@ -89,6 +89,7 @@
       if(!statusElement) {
         statusElement = document.createElement('div');
         statusElement.id = 'cep-status';
+        statusElement.className = 'cep-status';
         cepInput.parentNode.appendChild(statusElement);
       }
       statusElement.className = 'cep-status loading';
@@ -97,31 +98,69 @@
       enderecoInput.disabled = true;
       bairroInput.disabled = true;
 
-      google.script.run
-        .withSuccessHandler(res => {
-          enderecoInput.disabled = false;
-          bairroInput.disabled = false;
+      const apis = [
+        {
+          url: `https://viacep.com.br/ws/${cep}/json/`,
+          parser: (data) => ({
+            endereco: data.logradouro || '',
+            bairro: data.bairro || ''
+          })
+        },
+        {
+          url: `https://brasilapi.com.br/api/cep/v1/${cep}`,
+          parser: (data) => ({
+            endereco: data.street || '',
+            bairro: data.neighborhood || ''
+          })
+        },
+        {
+          url: `https://cdn.apicep.com/file/apicep/${cep}.json`,
+          parser: (data) => ({
+            endereco: data.address || '',
+            bairro: data.district || ''
+          })
+        }
+      ];
 
-          if (res.erro) {
-            statusElement.className = 'cep-status error';
-            statusElement.textContent = 'CEP não encontrado';
-          } else {
-            enderecoInput.value = res.endereco || '';
-            bairroInput.value = res.bairro || '';
-            statusElement.className = 'cep-status success';
-            statusElement.textContent = '✓ Endereço encontrado';
-            setTimeout(() => statusElement.remove(), 3000);
-          }
-        })
-        .withFailureHandler(err => {
-          enderecoInput.disabled = false;
-          bairroInput.disabled = false;
+      for(let api of apis) {
+        try {
+          const response = await fetch(api.url);
           
-          console.error('Erro na chamada do servidor:', err);
-          statusElement.className = 'cep-status error';
-          statusElement.textContent = 'Erro ao buscar CEP. Verifique o console.';
-        })
-        .buscarCepServer(cep);
+          if(response.ok) {
+            const data = await response.json();
+            
+            if(!data.erro && !data.error) {
+              const resultado = api.parser(data);
+              
+              if(resultado.endereco || resultado.bairro) {
+                enderecoInput.value = resultado.endereco;
+                bairroInput.value = resultado.bairro;
+                statusElement.className = 'cep-status success';
+                statusElement.textContent = '✓ Endereço encontrado';
+                
+                enderecoInput.disabled = false;
+                bairroInput.disabled = false;
+                
+                setTimeout(() => {
+                  if(statusElement && statusElement.parentNode) {
+                    statusElement.remove();
+                  }
+                }, 3000);
+                
+                return;
+              }
+            }
+          }
+        } catch(err) {
+          console.log('Erro na API:', err);
+          continue;
+        }
+      }
+
+      enderecoInput.disabled = false;
+      bairroInput.disabled = false;
+      statusElement.className = 'cep-status error';
+      statusElement.textContent = 'CEP não encontrado';
     }
 
     function mostrarOutrosInteresses(){
